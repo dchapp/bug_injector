@@ -11,12 +11,13 @@ pass_options="-Xclang -load -Xclang $pass_lib"
 $CC -c $error_lib -o "./error_lib/error_lib.o"
 
 # Compile demo code with error injection pass
-$CC $pass_options -c "./test/demo.c" -o "./test/demo.o"
+$CC -fopenmp -I"/g/g17/chapp1/repos/LLVM-openmp/build/include" $pass_options -c "./test/demo.c" -o "./test/demo.o"
 
 # Link 
-$CC "./test/demo.o" "./error_lib/error_lib.o" -o "./test/demo.exe"
+$CC -fopenmp "./test/demo.o" "./error_lib/error_lib.o" -o "./test/demo.exe"
 
 # Run
+export OMP_NUM_THREADS=2
 "./test/demo.exe"
 
 
