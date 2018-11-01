@@ -87,6 +87,7 @@ namespace {
 
             IRBuilder<> builder(&I);
             ConstantInt *hang_time = builder.getInt32(17);
+            //ConstantInt *hang_time = builder.getInt32(0); // Infinite hang
             builder.CreateCall(hangFunc, hang_time);
             bb_is_tainted = true;
           }
