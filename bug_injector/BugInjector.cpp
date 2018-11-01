@@ -16,6 +16,8 @@
 #include "llvm/IR/IRBuilder.h" 
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
 
+#include "llvm/Support/RandomNumberGenerator.h"
+
 // Includes from example pass at: https://sites.google.com/site/arnamoyswebsite/Welcome/updates-news/llvmpasstoinsertexternalfunctioncalltothebitcode
 //#include "llvm/Pass.h"
 //#include "llvm/Module.h"
@@ -56,11 +58,18 @@ namespace {
   
   struct BugInjectorPass : public FunctionPass {
     static char ID;
-    BugInjectorPass() : FunctionPass(ID) {}
-
+    BugInjectorPass() : FunctionPass(ID) 
+    {
+      srand(17); 
+    }
+    
     virtual bool runOnFunction(Function &F) {
-      errs() << "Wreaking havoc in function: " << F.getName() << "!\n";
-      
+      //errs() << "Wreaking havoc in function: " << F.getName() << "!\n";
+     
+      // RNG stuff
+      auto rng = F.getParent()->createRNG(this);
+      //errs() << "Function: " << F.getName() << ", RNG: " << (*rng)() << "\n";
+
       // Get the "hang" bug function from library
       LLVMContext &context = F.getContext();
       std::vector<Type*> paramTypes = { Type::getInt32Ty(context) };
@@ -83,7 +92,7 @@ namespace {
           roll = static_cast<double> (rand()) / static_cast<double> (RAND_MAX);
           if (roll < injection_probability && !bb_is_tainted) 
           {
-            errs() << "Error injected at basic block: " << bb_idx << " instruction: " << in_idx << "\n"; 
+            errs() << "Error injected at function: " << F.getName() << ", basic block: " << bb_idx << " instruction: " << in_idx << "\n"; 
 
             IRBuilder<> builder(&I);
             ConstantInt *hang_time = builder.getInt32(17);
@@ -91,18 +100,6 @@ namespace {
             builder.CreateCall(hangFunc, hang_time);
             bb_is_tainted = true;
           }
-
-          //if (auto* op = dyn_cast<BinaryOperator>(&I))
-          //{
-          //  // Determine insertion point
-          //  IRBuilder<> builder(op);
-          //  builder.SetInsertPoint(&B, ++builder.GetInsertPoint());
-          //
-          //  // Insert error code
-          //  Value* args[] = {op};
-          //  builder.CreateCall(hangFunc, args); 
-
-          //}
           
           in_idx++;
         }
