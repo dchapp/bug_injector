@@ -5,6 +5,7 @@
 // Standard headers
 #include <stdlib.h> // For RNG
 #include <regex> 
+#include <unordered_map>
 
 // Non-standard headers 
 #include <toml.h>
@@ -98,6 +99,8 @@ namespace {
     static char ID;
     config_t conf;
     int n_bugs_injected = 0;
+    std::unordered_map<std::string, int> func_to_bugcount;
+    std::unordered_map<std::string, int> bb_to_bugcount;
 
     BugInjectorPass() : FunctionPass(ID) 
     {
@@ -109,58 +112,80 @@ namespace {
       // Set up for bug injection
       init(conf);
     }
-    
-    virtual bool runOnFunction(Function &F) {
-#ifdef VDEBUG
-      errs() << "Handling Function: " << F.getName() << "\n";
-#endif
-      // Exit early if we're in an OpenMP function
-      std::regex ompFuncPattern("\\.omp_[a-z_0-9\\.]+");
-      if ( std::regex_match(F.getName().str(), ompFuncPattern) ) {
-#ifdef VDEBUG
-        errs() << "Found OMP function. Skipping.\n"; 
-#endif
-        return false;
-      }
 
-      // Get the "hang" bug function from library
+    Constant* lookupBugFunc(Function &F) 
+    {
       LLVMContext &context = F.getContext();
       std::vector<Type*> paramTypes = { Type::getInt32Ty(context) };
       Type *retType = Type::getVoidTy(context);
-      FunctionType *hangFuncType = FunctionType::get(retType, paramTypes, false);
-      Constant *hangFunc = F.getParent()->getOrInsertFunction(conf.bug_type, hangFuncType);
+      FunctionType *bugFuncType = FunctionType::get(retType, paramTypes, false);
+      Constant *bugFunc = F.getParent()->getOrInsertFunction(conf.bug_type, bugFuncType);
+      return bugFunc; 
+    }
+    
+    // Decide whether to inject a bug in a basic block, and if so, at which
+    // instruction.
+    bool legalToInject(Function &F, BasicBlock &B) 
+    {
+      // Don't inject if this is a function call added by OpenMP
+      std::regex ompFuncPattern("\\.omp_[a-z_0-9\\.]+");
+      if ( std::regex_match(F.getName().str(), ompFuncPattern) ) {
+        return false;
+      } 
+      
+      // Don't inject if this basic block or its enclosing function are already
+      // at their maximum bug count
+      std::string funcName = F.getName().str();
+      std::string bbName = B.getName().str();
+      if (func_to_bugcount.at(funcName) >= conf.max_bugs_per_function || bb_to_bugcount.at(bbName) >= conf.max_bugs_per_basic_block ) {
+        return false;
+      }
+
+      return true;
+    }
+
+    virtual bool runOnFunction(Function &F) {
+      // Set initial bug count for this function 
+      func_to_bugcount[F.getName().str()] = 0;
+      
+      // Get the "hang" bug function from library
+      Constant *hangFunc = lookupBugFunc(F); 
 
       // Loop over basic blocks
       int bb_idx = 0; 
       int in_idx = 0;
       for (auto &B : F) 
       {
-        bool bb_is_tainted = false;
-        // Loop over instructions 
-        for (auto &I : B)
-        {
-          // Decide whether to do error injection right here
-          roll = static_cast<double> (rand()) / static_cast<double> (RAND_MAX);
-          if (roll < conf.injection_probability && !bb_is_tainted) 
-          {
+        // Set initial bug count for this basic block
+        bb_to_bugcount[B.getName().str()] = 0;
+        // Check whether injection is allowed
+        if (legalToInject(F, B)) {
+          // If it is, loop over instructions
+          for (auto &I : B) {
+            // And check to see if we actually inject here or not
+            roll = static_cast<double> (rand()) / static_cast<double> (RAND_MAX);
+            if (roll < conf.injection_probability) {
 #ifdef DEBUG
-            errs() << "Error of type: " << conf.bug_type 
-                   << ", injected at function: " << F.getName() 
-                   << ", basic block: " << bb_idx 
-                   << ", instruction: " << in_idx << "\n"; 
+              errs() << "Error of type: " << conf.bug_type 
+                     << ", injected at function: " << F.getName() 
+                     << ", basic block: " << bb_idx 
+                     << ", instruction: " << in_idx << "\n"; 
 #endif
-            IRBuilder<> builder(&I);
-            ConstantInt *hang_time = builder.getInt32(17);
-            builder.CreateCall(hangFunc, hang_time);
-            bb_is_tainted = true;
+              // Inject 
+              IRBuilder<> builder(&I);
+              ConstantInt *hang_time = builder.getInt32(17);
+              builder.CreateCall(hangFunc, hang_time);
+              // Update bug counts
+              func_to_bugcount[F.getName().str()]++; 
+              bb_to_bugcount[B.getName().str()]++;
+            }
+            in_idx++;
           }
-          in_idx++;
+          bb_idx++;
         }
-        bb_idx++;
       }
     }
   };
-  
 }
 
 char BugInjectorPass::ID = 0;
