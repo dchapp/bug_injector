@@ -3,6 +3,7 @@
 // 2. https://sites.google.com/site/arnamoyswebsite/Welcome/updates-news/llvmpasstoinsertexternalfunctioncalltothebitcode
 
 #include <stdlib.h> 
+#include <regex> 
 
 #include "llvm/Pass.h"
 #include "llvm/Support/raw_ostream.h"
@@ -29,6 +30,7 @@ static double roll;
 #define FIXED_SEED
 #define SEED 17 
 #define DEBUG
+//#define VDEBUG
 
 namespace {
   struct BugInjectorPass : public FunctionPass {
@@ -43,6 +45,18 @@ namespace {
     }
     
     virtual bool runOnFunction(Function &F) {
+#ifdef VDEBUG
+      errs() << "Handling Function: " << F.getName() << "\n";
+#endif
+      // Exit early if we're in an OpenMP function
+      std::regex ompFuncPattern("\\.omp_[a-z_0-9\\.]+");
+      if ( std::regex_match(F.getName().str(), ompFuncPattern) ) {
+#ifdef VDEBUG
+        errs() << "Found OMP function. Skipping.\n"; 
+#endif
+        return false;
+      }
+
       // Get the "hang" bug function from library
       LLVMContext &context = F.getContext();
       std::vector<Type*> paramTypes = { Type::getInt32Ty(context) };
