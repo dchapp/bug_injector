@@ -11,3 +11,5 @@ bug code itself is contained in `error_lib`. Currently the only available bug
 is a hang--either for a given number of milliseconds, or until the program is
 terminated. 
 
+### Notes
+We use the following TOML parser: https://github.com/mayah/tinytoml
