@@ -8,7 +8,7 @@ pass_lib="./build/bug_injector/libBugInjectorPass.so"
 pass_options="-Xclang -load -Xclang $pass_lib"
 
 # Compile the error library code
-$CC -c $error_lib -o "./error_lib/error_lib.o"
+$CC -c -fPIC $error_lib -o "./error_lib/error_lib.o"
 
 # Compile demo code with error injection pass
 $CC -fopenmp -I"/g/g17/chapp1/repos/LLVM-openmp/build/include" $pass_options -c "./test/demo.c" -o "./test/demo.o"
