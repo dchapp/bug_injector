@@ -3,6 +3,9 @@ add_library(BugInjectorPass MODULE
     BugInjector.cpp
 )
 
+
+include_directories(.)
+
 # Use C++11 to compile our pass (i.e., supply -std=c++11).
 target_compile_features(BugInjectorPass PRIVATE cxx_range_for cxx_auto_type)
 
@@ -10,6 +13,7 @@ target_compile_features(BugInjectorPass PRIVATE cxx_range_for cxx_auto_type)
 # otherwise, we'll get linker errors about missing RTTI data.
 set_target_properties(BugInjectorPass PROPERTIES
     COMPILE_FLAGS "-fno-rtti"
+    POSITION_INDEPENDENT_CODE ON
 )
 
 # Get proper shared-library behavior (where symbols are not necessarily
@@ -19,3 +23,5 @@ if(APPLE)
         LINK_FLAGS "-undefined dynamic_lookup"
     )
 endif(APPLE)
+
+

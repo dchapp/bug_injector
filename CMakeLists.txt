@@ -6,3 +6,6 @@ include_directories(${LLVM_INCLUDE_DIRS})
 link_directories(${LLVM_LIBRARY_DIRS})
 
 add_subdirectory(bug_injector)  
+
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+
