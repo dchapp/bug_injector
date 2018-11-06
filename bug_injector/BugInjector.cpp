@@ -130,8 +130,7 @@ namespace {
     static char ID; 
     config_t config;
     std::unordered_map<std::string, std::unordered_map<std::string, uint64_t> >func_to_bugcounts;
-    std::unordered_map<std::string, std::unordered_map<std::string, uint64_t> >bb_to_bugcounts;
-    std::unordered_map<std::string, Constant*> bugs; 
+    std::unordered_map<uint64_t, std::unordered_map<std::string, uint64_t> >bb_to_bugcounts;
 
     BugInjectorPass() : ModulePass(ID)
     {
@@ -151,11 +150,7 @@ namespace {
     std::string getConfPath(); 
     bool runOnFunctionFirst(Function &F);
     bool runOnFunction(Function &F);
-    bool legalToInject(Function &F, BasicBlock &B, const std::string& bug_type);
-    Constant* lookupHangMSFunc(Function &F);
-    Constant* lookupHangFunc(Function &F);
-    Constant* lookupFPEFunc(Function &F);
-    //void lookupBugFunctions(Module &M);
+    bool legalToInject(Function &F, uint64_t bb_idx, const std::string& bug_type);
     void lookupBugFunctions(Function &F);
   };
 
@@ -182,27 +177,30 @@ namespace {
 
   void BugInjectorPass::lookupBugFunctions(Function &F)
   {
-    //for (int i = 0; i < config.bugs.size(); i++) 
-    //{
-    //  // Get bug function name
-    //  std::string bug_type = config.bugs[i].type; 
-    //  // Get a context... still not totally sure what this does
-    //  LLVMContext &context = F.getContext();
-    //  // Get types of its arguments, if any
-    //  std::vector<Type*> paramTypes;
-    //  for (int j = 0; j < config.bugs[i].bug_function_args.size(); j++) 
-    //  {
-    //    paramTypes.push_back( Type::getInt32Ty(context) );
-    //  }
-    //  // Get return type. For our bug functions, this should always be void
-    //  Type *retType = Type::getVoidTy(context);
-    //  // Construct bug function type and bug function
-    //  FunctionType *bugFunctionType = FunctionType::get(retType, paramTypes, false);
-    //  //Constant *bugFunction = M.getOrInsertFunction(bug_type, bugFunctionType);
-    //  Constant *bugFunction = F.getParent()->getOrInsertFunction(bug_type, bugFunctionType);
-    //  // Insert into bug function map 
-    //  bugs.insert( {bug_type, bugFunction} );
-    //}
+    for ( auto bug : config.bugs ) 
+    {
+      // Unpack
+      std::string bug_name = bug.first;
+      bug_info_t bug_info = bug.second;
+      // Get context. Needed for using LLVM in threaded setting
+      LLVMContext &context = F.getContext();
+      // Get types of bug function arguments, if any
+      std::vector<Type*> paramTypes;
+      for ( auto arg : bug_info.bug_function_args )
+      {
+        paramTypes.push_back( Type::getInt32Ty(context) );
+      }
+      // Get return type. For bug functions, this is always void. 
+      Type *retType = Type::getVoidTy(context);
+      // Construct type for bug function 
+      FunctionType *bugFunctionType = FunctionType::get(retType, paramTypes, false);
+      // Actually look up the function 
+      Constant *bugFunction = F.getParent()->getOrInsertFunction(bug_name, bugFunctionType);
+      // Update bug info
+      bug_info.bug_function = bugFunction; 
+      // Update the map
+      config.bugs[bug_name] = bug_info; 
+    }
   }
 
   void BugInjectorPass::init()
@@ -215,68 +213,39 @@ namespace {
     }
   }
 
-  //Constant* BugInjectorPass::lookupHangMSFunc(Function &F) 
-  //{
-  //  LLVMContext &context = F.getContext();
-  //  std::vector<Type*> paramTypes = { Type::getInt32Ty(context) };
-  //  Type *retType = Type::getVoidTy(context);
-  //  FunctionType *bugFuncType = FunctionType::get(retType, paramTypes, false);
-  //  Constant *bugFunc = F.getParent()->getOrInsertFunction("hang_ms", bugFuncType);
-  //  return bugFunc; 
-  //}
-  //
-  //Constant* BugInjectorPass::lookupHangFunc(Function &F) 
-  //{
-  //  LLVMContext &context = F.getContext();
-  //  std::vector<Type*> paramTypes = { };
-  //  Type *retType = Type::getVoidTy(context);
-  //  FunctionType *bugFuncType = FunctionType::get(retType, paramTypes, false);
-  //  //Constant *bugFunc = F.getParent()->getOrInsertFunction(conf.bug_type, bugFuncType);
-  //  Constant *bugFunc = F.getParent()->getOrInsertFunction("hang", bugFuncType);
-  //  return bugFunc; 
-  //}
-  //
-  //Constant* BugInjectorPass::lookupFPEFunc(Function &F) 
-  //{
-  //  LLVMContext &context = F.getContext();
-  //  std::vector<Type*> paramTypes = { };
-  //  Type *retType = Type::getVoidTy(context);
-  //  FunctionType *bugFuncType = FunctionType::get(retType, paramTypes, false);
-  //  Constant *bugFunc = F.getParent()->getOrInsertFunction("fpe", bugFuncType);
-  //  return bugFunc; 
-  //}
-
-  bool BugInjectorPass::legalToInject(Function &F, BasicBlock &B, const std::string& bug_type) 
+  bool BugInjectorPass::legalToInject(Function &F, uint64_t bb_idx, const std::string& bug_type) 
   {
-    //// Don't inject if this is a function call added by OpenMP
-    //std::regex ompFuncPattern("\\.omp_[a-z_0-9\\.]+");
-    //if ( std::regex_match(F.getName().str(), ompFuncPattern) ) {
-    //  return false;
-    //} 
-    //// Don't inject if this basic block or its enclosing function are already
-    //// at their maximum bug count
-    //std::string funcName = F.getName().str();
-    //std::string bbName = B.getName().str();
-    //if (func_to_bugcounts.at(funcName).at(bug_type) >= config.max_bugs_per_function || 
-    //    bb_to_bugcount.at(bbName) >= conf.max_bugs_per_basic_block ) {
-    //  return false;
-    //}
-    //return true;
+    // Don't inject if this is a function call added by OpenMP
+    std::regex ompFuncPattern("\\.omp_[a-z_0-9\\.]+");
+    if ( std::regex_match(F.getName().str(), ompFuncPattern) ) {
+      return false;
+    } 
+    // Don't inject if this basic block or its enclosing function are already
+    // at their maximum bug count
+    std::string funcName = F.getName().str();
+
+    errs() << "Number of bugs of type: " << bug_type
+           << " allowed in function: " << funcName
+           << " , basic block: " << bb_idx
+           << " = " << config.bugs.at(bug_type).max_per_basic_block << "\n";
+
+    errs() << "Number of bugs of type: " << bug_type
+           << " currently injected in function: " << funcName
+           << " , basic block: " << bb_idx
+           << " = " << bb_to_bugcounts.at(bb_idx).at(bug_type) << "\n";
+
+    if (func_to_bugcounts.at(funcName).at(bug_type) >= config.bugs.at(bug_type).max_per_function || 
+        bb_to_bugcounts.at(bb_idx).at(bug_type) >= config.bugs.at(bug_type).max_per_basic_block ) {
+      return false;
+    }
+    return true;
   }
 
   bool BugInjectorPass::runOnModule(Module &M) 
   {
     errs() << "In Module: " << M.getName() << "\n";
-    errs() << "Looking up bug functions...\n";
     bool out; 
 
-    //lookupBugFunctions(M); 
-    errs() << "Done looking up bug functions\n";
-    //for (auto kvp : bugs) 
-    //{
-    //  errs() << "Bug function: " << kvp.first << "\n"; 
-    //}
-   
     // One loop over functions 
     for (auto &F : M) 
     { 
@@ -285,8 +254,8 @@ namespace {
     
     for (auto &F : M) 
     { 
-      //lookupBugFunctions(F); 
-      //out = BugInjectorPass::runOnFunction(F); 
+      lookupBugFunctions(F); 
+      out = BugInjectorPass::runOnFunction(F); 
     }
     
     return false; 
@@ -302,7 +271,6 @@ namespace {
       int instruction_idx = 0;
       for (auto &I : B) 
       {
-        //errs() << "Running first on instruction: " << instruction_idx << "\n";
         instruction_idx++; 
       }
     }
@@ -311,53 +279,61 @@ namespace {
 
   bool BugInjectorPass::runOnFunction(Function &F) 
   {
-    // Set initial bug count for this function 
-    //func_to_bugcount[F.getName().str()] = 0;
-    //// Get the the bug functions we will inject
-    //Constant *hangFunc = lookupHangFunc(F); 
-    //Constant *hangmsFunc = lookupHangMSFunc(F);
-    //Constant *fpeFunc = lookupFPEFunc(F); 
+
+    // Set initial bug counts for this function 
+    for ( auto bug_type : config.bugs )
+    {
+      func_to_bugcounts[F.getName().str()][bug_type.first] = 0;
+    }
+
     // Loop over basic blocks
     int bb_idx = 0; 
     int in_idx = 0;
     double injection_probability = 0.1; 
     for (auto &B : F) 
     {
-      // Set initial bug count for this basic block
-      //bb_to_bugcount[B.getName().str()] = 0;
-      // Check whether injection is allowed
-      if (legalToInject(F, B, F.getName().str())) {
-        // If it is, loop over instructions
-        for (auto &I : B) {
-          // And check to see if we actually inject here or not
-          roll = static_cast<double> (rand()) / static_cast<double> (RAND_MAX);
-          if (roll < injection_probability) {
+      // Set initial bug counts for this basic block
+      for ( auto bug_type : config.bugs )
+      {
+        bb_to_bugcounts[bb_idx][bug_type.first] = 0;
+      }
+      
+      // Loop over bug types that we may inject
+      for ( auto bug_type : config.bugs )
+      {
+        std::string bug_name = bug_type.first;
+        // Loop over instructions. Effectively, these are the "positions" 
+        // where our bugs may be injected. 
+        for ( auto &I : B )
+        {
+          // Check whether it is legal to inject a bug of this type here
+          if ( legalToInject(F, bb_idx, bug_name) ) {
+            IRBuilder<> builder(&I);
+            // Construct the args for the bug function
+            std::vector<Value*> args;
+            for ( auto arg : config.bugs.at(bug_name).bug_function_args )
+            {
+              args.push_back( builder.getInt32( arg ) );
+            }
+            // Lookup bug function
+            Constant* bugFunction = config.bugs.at(bug_name).bug_function;
+            // Actually insert the bug function instructions
+            ArrayRef<Value*> argsRef(args);
+            builder.CreateCall( bugFunction, argsRef );
+            // Update bug counts
+            func_to_bugcounts[F.getName().str()][bug_name]++;
+            bb_to_bugcounts[bb_idx][bug_name]++; 
 #ifdef DEBUG
-            errs() << "Error of type: hang_ms"  
+            errs() << "Error of type: " << bug_name 
                    << ", injected at function: " << F.getName() 
                    << ", basic block: " << bb_idx 
                    << ", instruction: " << in_idx << "\n"; 
 #endif
-            
-            // Set injector and make args for bug functions
-            IRBuilder<> builder(&I);
-            ConstantInt *hang_time = builder.getInt32(17);
-            
-            Constant* hangmsFunc = bugs.find("hang_ms")->second; 
-
-            // Inject bugs
-            builder.CreateCall(hangmsFunc, hang_time);
-            //builder.CreateCall(hangFunc, hang_time);
-            //builder.CreateCall(fpeFunc, hang_time);
-            
-            // Update bug counts
-            //func_to_bugcount[F.getName().str()]++; 
-            //bb_to_bugcount[B.getName().str()]++;
           }
           in_idx++;
         }
-        bb_idx++;
       }
+      bb_idx++;
     }
     return false;
   }
