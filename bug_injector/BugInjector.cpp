@@ -122,6 +122,28 @@ void print_config(const config_t config)
   errs() << "================================\n\n";
 }
 
+std::string getConfPath()
+{
+  std::string default_config_path = "./config/default.json";
+  std::string config_path;
+  char* env_var;
+  env_var = getenv("BUG_INJECTOR_CONFIG");
+  if (env_var == NULL) {
+    config_path = default_config_path;
+#ifdef DEBUG
+    errs() << "No configuration file specified. Using default configuration located at: "
+           << default_config_path << "\n";
+#endif
+  } else {
+    config_path = env_var; 
+#ifdef DEBUG
+    errs() << "Using provided configuration file: " << config_path << "\n"; 
+#endif
+  }
+  return config_path; 
+}
+
+
 namespace {
 
   /* Module Pass 
@@ -147,33 +169,12 @@ namespace {
 
     virtual bool runOnModule(Module &M) override; 
     void init(); 
-    std::string getConfPath(); 
+    //std::string getConfPath(); 
     bool runOnFunctionFirst(Function &F);
     bool runOnFunction(Function &F);
     bool legalToInject(Function &F, uint64_t bb_idx, const std::string& bug_type);
     void lookupBugFunctions(Function &F);
   };
-
-  std::string BugInjectorPass::getConfPath()
-  {
-    std::string default_config_path = "./config/default.json";
-    std::string config_path;
-    char* env_var;
-    env_var = getenv("BUG_INJECTOR_CONFIG");
-    if (env_var == NULL) {
-      config_path = default_config_path;
-#ifdef DEBUG
-      errs() << "No configuration file specified. Using default configuration located at: "
-             << default_config_path << "\n";
-#endif
-    } else {
-      config_path = env_var; 
-#ifdef DEBUG
-      errs() << "Using provided configuration file: " << config_path << "\n"; 
-#endif
-    }
-    return config_path; 
-  }
 
   void BugInjectorPass::lookupBugFunctions(Function &F)
   {
@@ -223,17 +224,6 @@ namespace {
     // Don't inject if this basic block or its enclosing function are already
     // at their maximum bug count
     std::string funcName = F.getName().str();
-
-    errs() << "Number of bugs of type: " << bug_type
-           << " allowed in function: " << funcName
-           << " , basic block: " << bb_idx
-           << " = " << config.bugs.at(bug_type).max_per_basic_block << "\n";
-
-    errs() << "Number of bugs of type: " << bug_type
-           << " currently injected in function: " << funcName
-           << " , basic block: " << bb_idx
-           << " = " << bb_to_bugcounts.at(bb_idx).at(bug_type) << "\n";
-
     if (func_to_bugcounts.at(funcName).at(bug_type) >= config.bugs.at(bug_type).max_per_function || 
         bb_to_bugcounts.at(bb_idx).at(bug_type) >= config.bugs.at(bug_type).max_per_basic_block ) {
       return false;
