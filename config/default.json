@@ -1,0 +1,24 @@
+{
+    "rng":
+    {
+       "fixed": true,
+       "seed": 36
+    }, 
+    "bugs":
+    [
+        {
+            "type": "hang",
+            "num": 1,
+            "max_per_function": 0,
+            "max_per_basic_block": 0,
+            "bug_function_args": [ ]
+        },
+        {
+            "type": "hang_ms",
+            "num": 2,
+            "max_per_function": 1,
+            "max_per_basic_block": 1,
+            "bug_function_args": [ 17 ]
+        }
+    ]
+}
