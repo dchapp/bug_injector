@@ -3,7 +3,6 @@ add_library(BugInjectorPass MODULE
     BugInjector.cpp
 )
 
-
 include_directories(.)
 
 # Use C++11 to compile our pass (i.e., supply -std=c++11).

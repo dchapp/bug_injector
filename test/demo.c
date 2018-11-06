@@ -37,6 +37,7 @@ void finalize(int y, int z) {
 }
 
 int main() {
+  printf("Entering demo\n"); 
   int x;
   #pragma omp parallel 
   {
