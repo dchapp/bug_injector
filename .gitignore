@@ -1,0 +1,10 @@
+# Ignore build directory and all contents 
+build/**
+
+# Ignore core dumps
+*.core
+
+# Ignore object code, executables
+*.o 
+*.exe 
+*.out
