@@ -124,7 +124,7 @@ void print_config(const config_t config)
 
 std::string getConfPath()
 {
-  std::string default_config_path = "./config/default.json";
+  std::string default_config_path = "/g/g17/chapp1/repos/llvm_passes/bug_injector/config/default.json";
   std::string config_path;
   char* env_var;
   env_var = getenv("BUG_INJECTOR_CONFIG");
@@ -151,8 +151,10 @@ namespace {
   struct BugInjectorPass : public ModulePass {
     static char ID; 
     config_t config;
-    std::unordered_map<std::string, std::unordered_map<std::string, uint64_t> >func_to_bugcounts;
-    std::unordered_map<uint64_t, std::unordered_map<std::string, uint64_t> >bb_to_bugcounts;
+    std::unordered_map<std::string, uint64_t> bug_to_count;
+    std::unordered_map<std::string, std::unordered_map<std::string, uint64_t> > func_to_bugcounts;
+    std::unordered_map<uint64_t, std::unordered_map<std::string, uint64_t> > bb_to_bugcounts;
+    std::unordered_map<std::string, std::unordered_map< uint64_t, uint64_t > > func_to_counts;
 
     BugInjectorPass() : ModulePass(ID)
     {
@@ -225,7 +227,8 @@ namespace {
     // at their maximum bug count
     std::string funcName = F.getName().str();
     if (func_to_bugcounts.at(funcName).at(bug_type) >= config.bugs.at(bug_type).max_per_function || 
-        bb_to_bugcounts.at(bb_idx).at(bug_type) >= config.bugs.at(bug_type).max_per_basic_block ) {
+        bb_to_bugcounts.at(bb_idx).at(bug_type) >= config.bugs.at(bug_type).max_per_basic_block  ||
+        bug_to_count.at(bug_type) >= config.bugs.at(bug_type).num ) { 
       return false;
     }
     return true;
@@ -236,15 +239,43 @@ namespace {
     errs() << "In Module: " << M.getName() << "\n";
     bool out; 
 
-    // One loop over functions 
+    // A pass to pick injection locations
     for (auto &F : M) 
     { 
-      //out = BugInjectorPass::runOnFunctionFirst(F); 
+      std::unordered_map< uint64_t, uint64_t > bb_to_instruction_count;
+      func_to_counts.insert( {F.getName().str(), bb_to_instruction_count} );
+      out = BugInjectorPass::runOnFunctionFirst(F); 
+    }
+
+#ifdef VDEBUG
+    // Print the function, basic block instruction counts 
+    errs() << "Instruction counts\n";
+    for ( auto f : func_to_counts )
+    {
+      errs() << "Function: " << f.first << "\n";
+      if ( !f.second.empty() ) {
+        for ( auto bb : f.second ) 
+        {
+          errs() << "\t- Basic Block: " << bb.first << ", Instructions: " << bb.second << "\n";
+        }
+      }
+    }
+#endif  
+
+    // Initialize bug count totals
+    for ( auto bug_type : config.bugs )
+    {
+      bug_to_count.insert( {bug_type.first, 0} );
     }
     
-    for (auto &F : M) 
+    // Bug injection pass
+    bool lookupDone = false;
+    for ( auto &F : M ) 
     { 
-      lookupBugFunctions(F); 
+      if ( !lookupDone ) {
+        lookupBugFunctions(F); 
+        lookupDone = true;
+      } 
       out = BugInjectorPass::runOnFunction(F); 
     }
     
@@ -254,15 +285,21 @@ namespace {
   bool BugInjectorPass::runOnFunctionFirst(Function &F) 
   {
     int bb_idx = 0;
-    errs() << "Running first on function: " << F.getName() << "\n";
+    //errs() << "Counting instructions in function: " << F.getName() << "\n";
     for (auto &B : F) 
     {
-      errs() << "Running first on basic block: " << bb_idx << "\n";
+      //errs() << "Counting instructions in basic block: " << bb_idx << "\n";
       int instruction_idx = 0;
       for (auto &I : B) 
       {
+        //errs() << "Function: " << F.getName() 
+        //       << ", Basic Block: " << bb_idx 
+        //       << ", Instruction: " << instruction_idx 
+        //       << ", Opcode Name: " << I.getOpcodeName() << "\n";
         instruction_idx++; 
       }
+      func_to_counts[F.getName().str()].insert( {bb_idx, instruction_idx} );
+      bb_idx++; 
     }
     return false; 
   }
@@ -313,6 +350,7 @@ namespace {
             // Update bug counts
             func_to_bugcounts[F.getName().str()][bug_name]++;
             bb_to_bugcounts[bb_idx][bug_name]++; 
+            bug_to_count[bug_name]++; 
 #ifdef DEBUG
             errs() << "Error of type: " << bug_name 
                    << ", injected at function: " << F.getName() 
